@@ -145,6 +145,7 @@
 #include "llvm/Transforms/Vectorize/LoopVectorize.h"
 #include "llvm/Transforms/Vectorize/SLPVectorizer.h"
 #include "llvm/Transforms/Vectorize/VectorCombine.h"
+#include "llvm/Transforms/Obfuscation/Obfuscation.h"
 
 using namespace llvm;
 
@@ -1631,8 +1632,8 @@ PassBuilder::buildPerModuleDefaultPipeline(OptimizationLevel Level,
       PGOOpt->Action == PGOOptions::SampleUse)
     MPM.addPass(PseudoProbeUpdatePass());
     
-if (!isLTOPreLink(Phase))
-    MPM.addPass(ObfuscationPass());
+ if (!isLTOPreLink(Phase))
+     MPM.addPass(ObfuscationPass());
 
   // Emit annotation remarks.
   addAnnotationRemarksPass(MPM);
@@ -1787,6 +1788,8 @@ ModulePassManager PassBuilder::buildThinLTODefaultPipeline(
     // globals in the object file.
     MPM.addPass(EliminateAvailableExternallyPass());
     MPM.addPass(GlobalDCEPass());
+      
+   MPM.addPass(ObfuscationPass());
     return MPM;
   }
   if (!UseCtxProfile.empty()) {
@@ -1800,6 +1803,8 @@ ModulePassManager PassBuilder::buildThinLTODefaultPipeline(
   // Now add the optimization pipeline.
   MPM.addPass(buildModuleOptimizationPipeline(
       Level, ThinOrFullLTOPhase::ThinLTOPostLink));
+    
+    MPM.addPass(ObfuscationPass());
 
   // Emit annotation remarks.
   addAnnotationRemarksPass(MPM);
@@ -1836,7 +1841,8 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
                                    lowertypetests::DropTestKind::Assume));
 
     invokeFullLinkTimeOptimizationLastEPCallbacks(MPM, Level);
-
+      
+      MPM.addPass(ObfuscationPass());
     // Emit annotation remarks.
     addAnnotationRemarksPass(MPM);
 
@@ -1921,6 +1927,7 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
 
     invokeFullLinkTimeOptimizationLastEPCallbacks(MPM, Level);
 
+      MPM.addPass(ObfuscationPass());
     // Emit annotation remarks.
     addAnnotationRemarksPass(MPM);
 
@@ -2141,7 +2148,8 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
     MPM.addPass(CGProfilePass(/*InLTOPostLink=*/true));
 
   invokeFullLinkTimeOptimizationLastEPCallbacks(MPM, Level);
-
+    
+    MPM.addPass(ObfuscationPass());
   // Emit annotation remarks.
   addAnnotationRemarksPass(MPM);
 
@@ -2258,6 +2266,9 @@ PassBuilder::buildO0DefaultPipeline(OptimizationLevel Level,
 
   invokeOptimizerLastEPCallbacks(MPM, Level, Phase);
 
+ if (!isLTOPreLink(Phase))
+    MPM.addPass(ObfuscationPass());
+    
   if (isLTOPreLink(Phase))
     addRequiredLTOPreLinkPasses(MPM);
 
