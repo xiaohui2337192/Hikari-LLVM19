@@ -29,9 +29,7 @@ jobs:
       # 3. Sets up the MSVC C++ toolchain by running vcvarsall.bat
       # This makes cl.exe, link.exe, etc. available in the PATH for subsequent steps.
       - name: Set up MSVC developer environment
-        uses: microsoft/setup-msvc-dev@v1
-        with:
-          vsc_arch: 'x64'
+        uses: ilammy/msvc-dev-cmd@v1
 
       # 4. Configure the project using CMake
       - name: Configure CMake
