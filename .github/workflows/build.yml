@@ -9,7 +9,7 @@ jobs:
   build-release:
     name: Build LLVM and Create Release
     runs-on: ubuntu-22.04
-    timeout-minutes: 180
+    timeout-minutes: 300
 
     steps:
     - name: Checkout repository
@@ -44,7 +44,7 @@ jobs:
           -DLLVM_INCLUDE_UTILS=OFF \
           -DLLVM_INCLUDE_BENCHMARKS=OFF \
           -DLLVM_USE_LINKER=gold \
-          -DLLVM_BUILD_TOOLS=OFF
+          -DLLVM_BUILD_TOOLS=OFF \
           -DCMAKE_INSTALL_PREFIX="/opt/llvm-install"
 
     - name: Build with maximum parallelism
@@ -71,19 +71,7 @@ jobs:
         tar -czvf $GITHUB_WORKSPACE/hikari-llvm-ubuntu-$(uname -m)-complete.tar.gz \
           --format=posix \
           --owner=0 --group=0 \
-          --mtime="$(date -d "@$(git log -1 --format=%ct)" "+%Y-%m-%d %H:%M:%S")" \
           .
-
-    - name: Create stripped archive (optional)
-      run: |
-        # 可选：创建精简版压缩包
-        cd /opt/llvm-install
-        tar -czvf $GITHUB_WORKSPACE/hikari-llvm-ubuntu-$(uname -m)-minimal.tar.gz \
-          bin/ \
-          lib/clang/ \
-          lib/*.so* \
-          lib/*.dylib* \
-          share/
 
     - name: Create version and manifest files
       run: |
@@ -97,9 +85,6 @@ jobs:
         # 生成文件清单
         echo "=== File Manifest ===" > $GITHUB_WORKSPACE/MANIFEST.txt
         find . -type f | sort >> $GITHUB_WORKSPACE/MANIFEST.txt
-        echo "" >> $GITHUB_WORKSPACE/MANIFEST.txt
-        echo "=== Directory Structure ===" >> $GITHUB_WORKSPACE/MANIFEST.txt
-        find . -type d | sort >> $GITHUB_WORKSPACE/MANIFEST.txt
 
     - name: Verify archive contents
       run: |
@@ -115,7 +100,6 @@ jobs:
       with:
         files: |
           hikari-llvm-ubuntu-*-complete.tar.gz
-          hikari-llvm-ubuntu-*-minimal.tar.gz
           VERSION.txt
           MANIFEST.txt
           file-list.txt
