@@ -1,46 +1,135 @@
-name: Build Hikari-LLVM19 on Linux
+name: Build and Release Hikari-LLVM19
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    tags: [ "v*" ]
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build on Ubuntu
-    runs-on: ubuntu-latest
+  build-release:
+    name: Build LLVM and Create Release
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential cmake ninja-build python3
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          ninja-build \
+          python3 \
+          python3-pip \
+          zlib1g-dev \
+          libncurses-dev \
+          libxml2-dev \
+          libedit-dev
 
     - name: Configure CMake
       run: |
         cmake -S llvm -B build -G Ninja \
           -DCMAKE_BUILD_TYPE=Release \
-          -DLLVM_ENABLE_PROJECTS="clang;lld" \
+          -DLLVM_ENABLE_PROJECTS="clang;lld;clang-tools-extra" \
           -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64" \
           -DLLVM_ENABLE_ZSTD=OFF \
           -DLLVM_INCLUDE_TESTS=OFF \
           -DLLVM_INCLUDE_EXAMPLES=OFF \
           -DLLVM_INCLUDE_UTILS=OFF \
           -DLLVM_INCLUDE_BENCHMARKS=OFF \
-          -DLLVM_BUILD_TOOLS=OFF \
-          -DLLVM_INSTALL_TOOLCHAIN_ONLY=ON \
-          -DCMAKE_INSTALL_PREFIX="install"
+          -DLLVM_USE_LINKER=gold \
+          -DCMAKE_INSTALL_PREFIX="/opt/llvm-install"
 
-    - name: Build the project
-      run: cmake --build build
+    - name: Build with maximum parallelism
+      run: |
+        CORES=$(nproc)
+        echo "Building with $CORES threads"
+        cmake --build build -- -j$CORES
 
-    - name: Package the build artifacts
+    - name: Install LLVM
+      run: |
+        cmake --build build --target install
+
+    - name: Create complete file listing
+      run: |
+        # 记录完整的安装文件结构
+        find /opt/llvm-install -type f > file-list.txt
+        find /opt/llvm-install -type l >> file-list.txt
+        du -sh /opt/llvm-install > install-size.txt
+
+    - name: Create comprehensive archive
+      run: |
+        # 创建完整的压缩包，包含所有必要文件
+        cd /opt/llvm-install
+        tar -czvf $GITHUB_WORKSPACE/hikari-llvm-ubuntu-$(uname -m)-complete.tar.gz \
+          --format=posix \
+          --owner=0 --group=0 \
+          --mtime="$(date -d "@$(git log -1 --format=%ct)" "+%Y-%m-%d %H:%M:%S")" \
+          .
+
+    - name: Create stripped archive (optional)
+      run: |
+        # 可选：创建精简版压缩包
+        cd /opt/llvm-install
+        tar -czvf $GITHUB_WORKSPACE/hikari-llvm-ubuntu-$(uname -m)-minimal.tar.gz \
+          bin/ \
+          lib/clang/ \
+          lib/*.so* \
+          lib/*.dylib* \
+          share/
+
+    - name: Create version and manifest files
+      run: |
+        cd /opt/llvm-install
+        # 生成版本信息
+        ./bin/clang --version > $GITHUB_WORKSPACE/VERSION.txt
+        echo "Build date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_WORKSPACE/VERSION.txt
+        echo "Git commit: $(git rev-parse HEAD)" >> $GITHUB_WORKSPACE/VERSION.txt
+        echo "System: $(uname -a)" >> $GITHUB_WORKSPACE/VERSION.txt
+        
+        # 生成文件清单
+        echo "=== File Manifest ===" > $GITHUB_WORKSPACE/MANIFEST.txt
+        find . -type f | sort >> $GITHUB_WORKSPACE/MANIFEST.txt
+        echo "" >> $GITHUB_WORKSPACE/MANIFEST.txt
+        echo "=== Directory Structure ===" >> $GITHUB_WORKSPACE/MANIFEST.txt
+        find . -type d | sort >> $GITHUB_WORKSPACE/MANIFEST.txt
+
+    - name: Verify archive contents
+      run: |
+        # 验证压缩包内容
+        tar -tzvf hikari-llvm-ubuntu-*-complete.tar.gz | head -20
+        echo "Archive size: $(du -h hikari-llvm-ubuntu-*-complete.tar.gz)"
+        
+        # 检查关键文件是否存在
+        tar -tzvf hikari-llvm-ubuntu-*-complete.tar.gz | grep -E "(bin/clang|bin/lld|bin/llvm-config)" || echo "Warning: Key files might be missing"
+
+    - name: Create Release with all assets
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          hikari-llvm-ubuntu-*-complete.tar.gz
+          hikari-llvm-ubuntu-*-minimal.tar.gz
+          VERSION.txt
+          MANIFEST.txt
+          file-list.txt
+          install-size.txt
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload build artifacts for debugging
       uses: actions/upload-artifact@v4
       with:
-        name: Hikari-LLVM-linux
-        path: install/
+        name: llvm-build-details
+        path: |
+          build/CMakeCache.txt
+          build/CMakeFiles/CMakeOutput.log
+          file-list.txt
+          install-size.txt
+        if-no-files-found: ignore
