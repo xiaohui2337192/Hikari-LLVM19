@@ -1,0 +1,68 @@
+name: Build Hikari-LLVM19
+
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+  # Triggers the workflow on push events but only for the main branch
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    # The type of runner that the job will run on
+    runs-on: windows-latest
+
+    steps:
+      # 1. Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # LLVM uses submodules, so it's important to fetch them
+          submodules: 'recursive'
+
+      # 2. Sets up Python, which is a dependency for LLVM's build scripts
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 3. Sets up the MSVC C++ toolchain by running vcvarsall.bat
+      # This makes cl.exe, link.exe, etc. available in the PATH for subsequent steps.
+      - name: Set up MSVC developer environment
+        uses: microsoft/setup-msvc-dev@v1
+        with:
+          vsc_arch: 'x64'
+
+      # 4. Configure the project using CMake
+      - name: Configure CMake
+        run: |
+          cmake -S llvm -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+            -DCMAKE_CXX_FLAGS="/MT" `
+            -DLLVM_ENABLE_PROJECTS="clang" `
+            -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64" `
+            -DLLVM_ENABLE_ZSTD=OFF `
+            -DLLVM_INCLUDE_TESTS=OFF `
+            -DLLVM_INCLUDE_EXAMPLES=OFF `
+            -DLLVM_INCLUDE_UTILS=OFF `
+            -DLLVM_INCLUDE_BENCHMARKS=OFF `
+            -DLLVM_BUILD_TOOLS=OFF
+
+      # 5. Build the project using the generated Ninja files
+      # We use "cmake --build" as it's the recommended modern way to invoke the underlying build tool.
+      # It will call Ninja automatically. We add "-j2" to use 2 CPU cores for building.
+      - name: Build with Ninja
+        run: cmake --build build --config Release -j2
+
+      # 6. Package the essential build outputs into a 7z archive
+      # The windows-latest runner has 7-Zip pre-installed.
+      - name: Package build artifacts
+        run: 7z a -t7z Hikari-LLVM19-build.7z ./build/bin ./build/lib ./build/include
+
+      # 7. Upload the packaged archive as a workflow artifact
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hikari-llvm-build
+          path: Hikari-LLVM19-build.7z
